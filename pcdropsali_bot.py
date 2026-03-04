@@ -1,3 +1,4 @@
+telegram.ext import ApplicationBuilder
 """
 pcdropsali_bot.py
 البوت الكامل المتوافق مع Python 3.13 و Railway
