@@ -20,7 +20,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-BOT_TOKEN = os.getenv("8640042751:AAGrAJwW_wx7knttafsGrNn6AocFuWok9PM")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 TRACKING_ID = os.getenv("TRACKING_ID", "default")
 
 # =============================
