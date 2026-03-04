@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-PCDropsAli - Production Ready Version for Render
-Telegram Bot + AliExpress Affiliate API
-"""
-
 import os
 import re
 import time
@@ -24,65 +19,50 @@ from telegram.ext import (
     filters,
 )
 
-# ==========================================================
-# 🔐 Environment Variables (SET THESE IN RENDER)
-# ==========================================================
+# =============================
+# Environment Variables
+# =============================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 TRACKING_ID = os.getenv("TRACKING_ID")
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 if not all([BOT_TOKEN, API_KEY, API_SECRET, TRACKING_ID]):
-    raise ValueError("❌ Missing Environment Variables!")
+    raise ValueError("Missing Environment Variables")
 
 ALIEXPRESS_API_URL = "https://api-sg.aliexpress.com/sync"
 
-# ==========================================================
-# ⚡ Logging
-# ==========================================================
-
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    level=logging.INFO,
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("PCDropsAli")
 
-# ==========================================================
-# ⚡ Cache (10 Minutes)
-# ==========================================================
-
 product_cache = TTLCache(maxsize=300, ttl=600)
-
-# ==========================================================
-# 🔎 AliExpress URL Detection
-# ==========================================================
 
 ALI_REGEX = re.compile(
     r"(https?://(?:s\.|www\.)?aliexpress\.com/[^\s]+)",
     re.IGNORECASE,
 )
 
-# ==========================================================
-# 🔐 Generate API Signature
-# ==========================================================
+# =============================
+# API SIGNATURE
+# =============================
 
 def generate_signature(params: dict) -> str:
     sorted_params = sorted(params.items())
     base_string = API_SECRET + "".join(f"{k}{v}" for k, v in sorted_params) + API_SECRET
 
     return hmac.new(
-        API_SECRET.encode("utf-8"),
-        base_string.encode("utf-8"),
+        API_SECRET.encode(),
+        base_string.encode(),
         hashlib.sha256,
     ).hexdigest().upper()
 
-# ==========================================================
-# 🌐 Call AliExpress API
-# ==========================================================
+# =============================
+# CALL API
+# =============================
 
 def call_api(method: str, extra_params: dict):
-
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
 
     params = {
@@ -101,83 +81,57 @@ def call_api(method: str, extra_params: dict):
     response.raise_for_status()
     return response.json()
 
-# ==========================================================
-# 🆔 Extract Product ID
-# ==========================================================
+# =============================
+# PRODUCT
+# =============================
 
 def extract_product_id(url: str):
-    patterns = [
-        r"/item/(\d+)\.html",
-        r"/(\d+)\.html",
-    ]
-
+    patterns = [r"/item/(\d+)\.html", r"/(\d+)\.html"]
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
             return match.group(1)
-
     return None
 
-# ==========================================================
-# 📦 Get Product Data
-# ==========================================================
-
 def get_product(product_id: str):
-
     if product_id in product_cache:
         return product_cache[product_id]
 
-    try:
-        data = call_api(
-            "aliexpress.affiliate.productdetail.get",
-            {
-                "product_ids": product_id,
-                "target_currency": "USD",
-                "target_language": "AR",
-            },
-        )
+    data = call_api(
+        "aliexpress.affiliate.productdetail.get",
+        {
+            "product_ids": product_id,
+            "target_currency": "USD",
+            "target_language": "AR",
+        },
+    )
 
-        product = data[
-            "aliexpress_affiliate_productdetail_get_response"
-        ]["resp_result"]["result"]["products"][0]
+    product = data[
+        "aliexpress_affiliate_productdetail_get_response"
+    ]["resp_result"]["result"]["products"][0]
 
-        product_cache[product_id] = product
-        return product
-
-    except Exception as e:
-        logger.error(f"Product Fetch Error: {e}")
-        return None
-
-# ==========================================================
-# 🔗 Generate Affiliate Link
-# ==========================================================
+    product_cache[product_id] = product
+    return product
 
 def generate_affiliate_link(original_url: str):
+    data = call_api(
+        "aliexpress.affiliate.link.generate",
+        {
+            "promotion_link_type": "0",
+            "source_values": original_url,
+            "tracking_id": TRACKING_ID,
+        },
+    )
 
-    try:
-        data = call_api(
-            "aliexpress.affiliate.link.generate",
-            {
-                "promotion_link_type": "0",
-                "source_values": original_url,
-                "tracking_id": TRACKING_ID,
-            },
-        )
+    return data[
+        "aliexpress_affiliate_link_generate_response"
+    ]["resp_result"]["result"]["promotion_links"][0]["promotion_link"]
 
-        return data[
-            "aliexpress_affiliate_link_generate_response"
-        ]["resp_result"]["result"]["promotion_links"][0]["promotion_link"]
-
-    except Exception as e:
-        logger.error(f"Affiliate Link Error: {e}")
-        return original_url
-
-# ==========================================================
-# 🧾 Format Professional Arabic Post
-# ==========================================================
+# =============================
+# FORMAT MESSAGE
+# =============================
 
 def format_post(product: dict, affiliate_link: str):
-
     title = product.get("product_title", "منتج من AliExpress")
     price = product.get("target_sale_price", "0.00")
     original_price = product.get("target_original_price", "")
@@ -186,27 +140,15 @@ def format_post(product: dict, affiliate_link: str):
     rating = product.get("shop_rating", "غير متوفر")
     sales = product.get("lastest_volume", "0")
 
-    discount = ""
-    try:
-        if original_price and float(original_price) > float(price):
-            percent = round(
-                (float(original_price) - float(price)) / float(original_price) * 100
-            )
-            discount = f"\n🔥 <b>نسبة الخصم:</b> {percent}%"
-    except:
-        pass
-
     message = f"""
 📦 <b>{title}</b>
 
 💰 <b>السعر الحالي:</b> ${price}
-💵 <s>${original_price}</s>{discount}
+💵 <s>${original_price}</s>
 
 🏬 <b>اسم المتجر:</b> {store}
 ⭐ <b>تقييم المتجر:</b> {rating}
 📦 <b>عدد المبيعات:</b> {sales}
-
-🔗 <b>روابط الشراء والخصم:</b>
 """
 
     keyboard = InlineKeyboardMarkup([
@@ -217,75 +159,60 @@ def format_post(product: dict, affiliate_link: str):
 
     return message.strip(), image, keyboard
 
-# ==========================================================
-# 🤖 Handle Messages
-# ==========================================================
+# =============================
+# HANDLERS
+# =============================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     if not update.message or not update.message.text:
         return
 
     urls = ALI_REGEX.findall(update.message.text)
-
     if not urls:
         return
 
     for url in urls:
-
         product_id = extract_product_id(url)
-
         if not product_id:
-            await update.message.reply_text("❌ تعذر استخراج رقم المنتج.")
+            await update.message.reply_text("❌ تعذر استخراج المنتج")
             return
 
         product = get_product(product_id)
-
-        if not product:
-            await update.message.reply_text("❌ تعذر جلب بيانات المنتج.")
-            return
-
         affiliate_link = generate_affiliate_link(url)
 
         message, image_url, keyboard = format_post(product, affiliate_link)
 
-        try:
-            await update.message.reply_photo(
-                photo=image_url,
-                caption=message,
-                parse_mode=ParseMode.HTML,
-                reply_markup=keyboard,
-            )
-        except:
-            await update.message.reply_text(
-                message,
-                parse_mode=ParseMode.HTML,
-                reply_markup=keyboard,
-            )
-
-# ==========================================================
-# 🚀 /start
-# ==========================================================
+        await update.message.reply_photo(
+            photo=image_url,
+            caption=message,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+        )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 أهلاً بك في PCDropsAli\n\n"
-        "أرسل أي رابط AliExpress وسأحوّله إلى منشور أفلييت احترافي."
+        "🤖 أهلاً بك في PCDropsAli\n\nأرسل أي رابط AliExpress."
     )
 
-# ==========================================================
-# 🏁 MAIN
-# ==========================================================
+# =============================
+# MAIN (WEBHOOK)
+# =============================
 
 def main():
+    port = int(os.environ.get("PORT", 10000))
+    webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("🚀 PCDropsAli is running on Render...")
-    app.run_polling(drop_pending_updates=True)
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        webhook_url=webhook_url,
+        url_path="webhook",
+    )
 
 if __name__ == "__main__":
     main()
